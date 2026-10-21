@@ -8,9 +8,9 @@ Assistant RAG pour une **entreprise e-commerce fictive**, interface web françai
 2. Embeddings multilingues locaux ONNX : `sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2` (384 dimensions). Vecteurs normalisés, similarité cosinus en mémoire.
 3. Recherche lexicale BM25 + recherche vectorielle, 12 candidats par branche. Fusion **RRF** avec constante 60 ; exclusion des résultats lexicaux sans correspondance.
 4. Reranking des 12 candidats fusionnés avec le cross-encoder multilingue **`BAAI/bge-reranker-v2-m3-int8`** ; sélection des 4 premiers.
-5. Génération via **l’API Groq**, modèle par défaut `llama-3.3-70b-versatile`, température 0, réponse limitée à 800 tokens. Prompt limité aux sources et citations `[S…]`. Retour des passages et scores à côté de la réponse.
+5. Génération via **l’API Groq**, modèle par défaut `llama-3.3-70b-versatile`, température 0, réponse limitée à 800 tokens. Prompt limité aux sources et citations `[S…]`. L’API conserve les passages et scores pour le diagnostic ; l’interface de messagerie affiche uniquement les réponses, sans les chunks ni leurs références.
 
-Pas de base vectorielle ni de GPU requis : adapté à un petit catalogue. L'index est reconstruit au démarrage ; le cache des modèles est conservé. Après modification des documents, redémarrer l'application. Chaque question est indépendante, sans mémoire conversationnelle.
+Pas de base vectorielle ni de GPU requis : adapté à un petit catalogue. L'index est reconstruit au démarrage ; le cache des modèles est conservé. Après modification des documents, redémarrer l'application. L’interface conserve les bulles des échanges tant que la page reste ouverte ; « Nouvelle discussion » les efface. Cet historique n’est ni enregistré ni transmis au modèle : chaque question est traitée indépendamment, sans mémoire conversationnelle.
 
 ## Déploiement Docker (avec génération)
 

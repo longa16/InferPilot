@@ -1,14 +1,246 @@
 <!doctype html>
-<html lang="fr"><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
-<title>NovaMaison · Assistant</title>
-<style>
-:root{font-family:system-ui,sans-serif;color:#163d37;background:#f3f6f2}body{max-width:850px;margin:5vh auto;padding:24px}header{display:flex;justify-content:space-between;align-items:center}small{color:#526b64}.tag{border:1px solid #bccdc3;border-radius:20px;padding:6px 12px}h1{font-size:clamp(2rem,6vw,3.5rem);line-height:1.1}main{background:white;border:1px solid #dae3db;border-radius:22px;padding:24px;margin-top:28px}textarea{box-sizing:border-box;width:100%;padding:16px;border:1px solid #a2b8ad;border-radius:10px;font:inherit;resize:vertical}button{background:#195443;color:white;border:0;border-radius:9px;padding:12px 18px;cursor:pointer;font:inherit;margin-top:12px}button:disabled{opacity:.5;cursor:wait}#answer{white-space:pre-wrap;line-height:1.7}details{border-top:1px solid #ddd;padding:14px 0}summary{cursor:pointer}details p{white-space:pre-wrap;font-size:.9rem;color:#405950}footer{margin-top:20px;font-size:.85rem}#status{margin-left:10px;font-size:.9rem}
-</style>
-<header><strong>NOVA<span style="font-weight:400">MAISON</span></strong><small class="tag">Boutique fictive</small></header>
-<h1>Un conseil, une question ?</h1><p>Produits, livraison, retours : consultez notre assistant et ses sources.</p>
-<main><form id="form"><label for="question">Votre question</label><textarea id="question" required minlength="2" maxlength="2000" rows="3" placeholder="La gourde Terra passe-t-elle au lave-vaisselle ?"></textarea><button id="send">Demander à l’assistant</button><span id="status" role="status"></span></form><p id="answer" aria-live="polite"></p><section id="sources" aria-label="Sources"></section></main>
-<footer>Démonstration · En mode génération, votre question et les extraits sélectionnés sont transmis à Groq. Aucune donnée de commande accessible. Ne saisissez aucune information sensible. Les réponses générées peuvent contenir des erreurs ; consultez les sources.</footer>
-<script>
-const form=document.querySelector('#form'), button=document.querySelector('#send'), status=document.querySelector('#status'), answer=document.querySelector('#answer'), sources=document.querySelector('#sources');
-form.addEventListener('submit',async event=>{event.preventDefault();button.disabled=true;status.textContent='Recherche en cours…';answer.textContent='';sources.replaceChildren();try{const response=await fetch('/api/chat',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({question:document.querySelector('#question').value})});const data=await response.json();if(!response.ok)throw new Error(typeof data.detail==='string'?data.detail:'Question invalide.');answer.textContent=data.answer;status.textContent=data.mode==='groq'?'Réponse générée':'Mode extractif';for(const source of data.sources){const d=document.createElement('details'),s=document.createElement('summary'),p=document.createElement('p');s.textContent=`[${source.id}] ${source.source}`;p.textContent=source.text;d.append(s,p);sources.append(d);}}catch(error){status.textContent='Erreur';answer.textContent=error.message;}finally{button.disabled=false;}});
-</script></html>
+<html lang="fr">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="theme-color" content="#195443">
+  <title>NovaMaison · Votre assistant</title>
+  <style>
+    :root { color-scheme: light; font-family: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; color: #183e34; background: #eef3ee; }
+    * { box-sizing: border-box; }
+    [hidden] { display: none !important; }
+    body { margin: 0; min-height: 100dvh; padding: 28px 20px; }
+    button, textarea { font: inherit; }
+    button { cursor: pointer; }
+    button:disabled { cursor: wait; opacity: .5; }
+    button:focus-visible, textarea:focus-visible { outline: 3px solid #bc8c44; outline-offset: 4px; }
+    .shell { max-width: 920px; margin: auto; }
+    .brand { display: flex; align-items: center; justify-content: space-between; gap: 16px; padding: 0 6px 22px; }
+    .wordmark { font-size: 17px; letter-spacing: .13em; font-weight: 750; }
+    .wordmark span { font-weight: 400; }
+    .demo { border: 1px solid #c8d6cb; border-radius: 20px; padding: 5px 10px; font-size: 11px; letter-spacing: .08em; text-transform: uppercase; }
+    .chat { display: flex; flex-direction: column; height: min(780px, calc(100dvh - 145px)); min-height: 420px; border: 1px solid #d7e1d8; border-radius: 24px; overflow: hidden; background: #fff; box-shadow: 0 18px 60px #183e3409; }
+    .chat-header { display: flex; align-items: center; gap: 13px; padding: 20px 24px; border-bottom: 1px solid #e8ede8; }
+    .avatar { display: grid; place-items: center; flex: 0 0 38px; height: 38px; border-radius: 13px; background: #e6eee7; color: #195443; }
+    .chat-header .avatar { background: #195443; color: #fff; }
+    h1 { font-size: 16px; margin: 0 0 4px; font-weight: 650; }
+    .subtitle { margin: 0; font-size: 12px; color: #657c70; }
+    .reset { margin-left: auto; background: transparent; border: 1px solid #dbe4dc; border-radius: 9px; color: #526d5f; padding: 9px 12px; font-size: 12px; }
+    .messages { flex: 1; min-height: 0; overflow-y: auto; overscroll-behavior: contain; padding: 28px 24px; scrollbar-width: thin; }
+    .message { display: flex; align-items: flex-end; gap: 10px; margin: 0 0 22px; }
+    .message.user { justify-content: flex-end; }
+    .message-content { max-width: 78%; min-width: 0; }
+    .author { display: block; margin: 0 0 7px 3px; font-size: 11px; color: #6d8075; }
+    .user .author { text-align: right; margin-right: 3px; }
+    .bubble { padding: 14px 17px; border-radius: 17px 17px 17px 4px; background: #f0f4ef; font-size: 14px; line-height: 1.75; white-space: pre-wrap; overflow-wrap: anywhere; }
+    .user .bubble { border-radius: 17px 17px 4px 17px; background: #195443; color: #fff; }
+    .error .bubble { background: #fcf1e9; color: #7a462b; }
+    .suggestions { display: flex; gap: 8px; flex-wrap: wrap; padding: 0 24px 18px; }
+    .suggestions button { border: 1px solid #d9e3d9; border-radius: 18px; padding: 8px 12px; background: #fff; color: #476653; font-size: 12px; }
+    .suggestions button:hover { background: #eff4ec; }
+    .composer-area { padding: 16px 24px 12px; border-top: 1px solid #e8ede8; background: #fff; }
+    .composer { display: flex; align-items: flex-end; gap: 12px; padding: 8px 8px 8px 15px; border: 1px solid #ccdace; border-radius: 15px; }
+    .composer:focus-within { border-color: #527b62; box-shadow: 0 0 0 3px #1954430a; }
+    textarea { display: block; width: 100%; min-height: 42px; max-height: 130px; resize: none; border: 0; outline: 0; background: transparent; padding: 10px 0; line-height: 1.5; font-size: 14px; color: #183e34; }
+    textarea:focus-visible { outline: none; }
+    textarea::placeholder { color: #829187; }
+    .send { flex: 0 0 42px; height: 42px; border: 0; border-radius: 11px; background: #195443; color: #fff; display: grid; place-items: center; }
+    .send:hover:not(:disabled) { background: #276a53; }
+    .composer-note { display: flex; justify-content: space-between; gap: 12px; min-height: 18px; margin-top: 9px; color: #7e8c81; font-size: 10px; }
+    footer { text-align: center; padding: 16px 15px 0; color: #6c7e70; font-size: 10px; line-height: 1.7; }
+    svg { width: 20px; height: 20px; }
+    .typing { display: flex; gap: 5px; padding: 8px 0; }
+    .typing span { width: 5px; height: 5px; border-radius: 50%; background: #739180; animation: pulse 1.2s infinite; }
+    .typing span:nth-child(2) { animation-delay: .15s; }
+    .typing span:nth-child(3) { animation-delay: .3s; }
+    .sr-only { position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px; overflow: hidden; clip: rect(0, 0, 0, 0); white-space: nowrap; border: 0; }
+    @keyframes pulse { 0%, 60%, 100% { opacity: .35; transform: translateY(0); } 30% { opacity: 1; transform: translateY(-3px); } }
+    @media (prefers-reduced-motion: reduce) { .typing span { animation: none; } }
+    @media (max-width: 600px) {
+      body { padding: 14px 10px; }
+      .brand { padding: 0 7px 14px; }
+      .wordmark { font-size: 13px; }
+      .chat { height: calc(100dvh - 135px); min-height: 350px; border-radius: 18px; }
+      .chat-header { padding: 15px 13px; gap: 10px; }
+      .reset { font-size: 11px; padding: 8px; }
+      .messages { padding: 20px 12px; }
+      .message-content { max-width: 85%; }
+      .message .avatar { display: none; }
+      .bubble { font-size: 13px; padding: 12px 14px; }
+      .composer-area { padding: 12px; }
+      .suggestions { padding: 0 12px 14px; }
+      .keyboard-hint { display: none; }
+      footer { padding: 12px 4px 0; }
+    }
+  </style>
+</head>
+<body>
+  <div class="shell">
+    <header class="brand"><div class="wordmark">NOVA<span>MAISON</span></div><span class="demo">Boutique fictive</span></header>
+    <main class="chat" aria-label="Discussion avec NovaMaison">
+      <header class="chat-header">
+        <div class="avatar" aria-hidden="true">✦</div>
+        <div><h1>Votre assistant NovaMaison</h1><p class="subtitle">Produits, livraison et retours</p></div>
+        <button class="reset" id="reset" type="button">Nouvelle discussion</button>
+      </header>
+      <div class="messages" id="messages" role="log" aria-label="Messages de la discussion" aria-live="polite" aria-relevant="additions text"></div>
+      <div class="suggestions" id="suggestions" aria-label="Suggestions de questions">
+        <button type="button">Comment retourner un article ?</button>
+        <button type="button">Quels sont les délais de livraison ?</button>
+        <button type="button">Découvrir les produits</button>
+      </div>
+      <div class="composer-area">
+        <form id="form" class="composer">
+          <label class="sr-only" for="question">Votre message</label>
+          <textarea id="question" rows="1" minlength="2" maxlength="2000" required placeholder="Écrivez votre message…"></textarea>
+          <button class="send" id="send" type="submit" aria-label="Envoyer le message" disabled>
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 19V5m-6 6 6-6 6 6"/></svg>
+          </button>
+        </form>
+        <div class="composer-note"><span id="status" role="status">À votre écoute</span><span class="keyboard-hint">Entrée pour envoyer · Maj + Entrée pour revenir à la ligne</span></div>
+      </div>
+    </main>
+    <footer>Les réponses peuvent contenir des erreurs. Ne partagez aucune information sensible.<br>En mode génération, votre question et les extraits utiles sont transmis à Groq.</footer>
+  </div>
+  <script>
+    const form = document.querySelector('#form');
+    const input = document.querySelector('#question');
+    const send = document.querySelector('#send');
+    const reset = document.querySelector('#reset');
+    const messages = document.querySelector('#messages');
+    const suggestions = document.querySelector('#suggestions');
+    const status = document.querySelector('#status');
+    let pending = false;
+
+    function scrollToLatest() { messages.scrollTop = messages.scrollHeight; }
+
+    function resizeInput() {
+      input.style.height = 'auto';
+      input.style.height = Math.min(input.scrollHeight, 130) + 'px';
+      send.disabled = pending || input.value.trim().length < 2;
+    }
+
+    function renderAnswer(element, text) {
+      // Keep source references out of the chat; never interpret model output as HTML.
+      const clean = text.replace(/(?:\[|【)S\d+(?:\s*[,;]\s*S?\d+)*(?:\]|】)/gi, '')
+        .replace(/[^\S\n]+([.,;:!?])/g, '$1').replace(/ {2,}/g, ' ').trim();
+      for (const part of clean.split(/(\*\*[^*]+\*\*)/g)) {
+        if (part.startsWith('**') && part.endsWith('**')) {
+          const strong = document.createElement('strong');
+          strong.textContent = part.slice(2, -2);
+          element.append(strong);
+        } else {
+          element.append(document.createTextNode(part));
+        }
+      }
+    }
+
+    function addMessage(role, text, { loading = false, error = false } = {}) {
+      const row = document.createElement('div');
+      row.className = 'message ' + role + (error ? ' error' : '');
+      if (role === 'assistant') {
+        const avatar = document.createElement('div');
+        avatar.className = 'avatar';
+        avatar.setAttribute('aria-hidden', 'true');
+        avatar.textContent = '✦';
+        row.append(avatar);
+      }
+      const content = document.createElement('div');
+      content.className = 'message-content';
+      const author = document.createElement('span');
+      author.className = 'author';
+      author.textContent = role === 'user' ? 'Vous' : 'NovaMaison';
+      const bubble = document.createElement('div');
+      bubble.className = 'bubble';
+      if (loading) {
+        bubble.setAttribute('aria-label', 'NovaMaison prépare sa réponse');
+        const dots = document.createElement('div');
+        dots.className = 'typing';
+        dots.setAttribute('aria-hidden', 'true');
+        for (let i = 0; i < 3; i++) dots.append(document.createElement('span'));
+        bubble.append(dots);
+      } else if (role === 'assistant') {
+        renderAnswer(bubble, text);
+      } else {
+        bubble.textContent = text;
+      }
+      content.append(author, bubble);
+      row.append(content);
+      messages.append(row);
+      scrollToLatest();
+      return row;
+    }
+
+    function newDiscussion() {
+      if (pending) return;
+      messages.replaceChildren();
+      addMessage('assistant', 'Bonjour et bienvenue chez NovaMaison ! Comment puis-je vous aider aujourd’hui ?');
+      suggestions.hidden = false;
+      input.value = '';
+      status.textContent = 'À votre écoute';
+      resizeInput();
+    }
+
+    form.addEventListener('submit', async event => {
+      event.preventDefault();
+      const question = input.value.trim();
+      if (pending || question.length < 2 || question.length > 2000) return;
+      pending = true;
+      reset.disabled = true;
+      suggestions.hidden = true;
+      addMessage('user', question);
+      input.value = '';
+      resizeInput();
+      const typing = addMessage('assistant', '', { loading: true });
+      status.textContent = 'NovaMaison prépare sa réponse…';
+      const controller = new AbortController();
+      const timeout = setTimeout(() => controller.abort(), 90000);
+      try {
+        const response = await fetch('/api/chat', {
+          method: 'POST', headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ question }), signal: controller.signal
+        });
+        const data = await response.json();
+        if (!response.ok) throw new Error('service');
+        if (typeof data.answer !== 'string' || !data.answer.trim()) throw new Error('empty');
+        const answer = data.mode === 'extractive'
+          ? 'Je ne peux pas formuler de réponse pour le moment. Vous pouvez contacter assistance@novamaison.example.'
+          : data.answer;
+        typing.remove();
+        addMessage('assistant', answer);
+        status.textContent = 'À votre écoute';
+      } catch (error) {
+        typing.remove();
+        addMessage('assistant', error.name === 'AbortError'
+          ? 'La réponse prend plus de temps que prévu. Vous pouvez réessayer dans un instant.'
+          : 'Je n’ai pas pu vous répondre pour le moment. Réessayez dans un instant ou contactez assistance@novamaison.example.', { error: true });
+        // Preserve a draft typed while waiting; otherwise restore the failed message.
+        if (!input.value.trim()) input.value = question;
+        status.textContent = 'Message non traité · Vous pouvez réessayer';
+      } finally {
+        clearTimeout(timeout);
+        pending = false;
+        reset.disabled = false;
+        resizeInput();
+        input.focus({ preventScroll: true });
+      }
+    });
+
+    input.addEventListener('input', resizeInput);
+    input.addEventListener('keydown', event => {
+      if (event.key === 'Enter' && !event.shiftKey && !event.isComposing) {
+        event.preventDefault();
+        if (!pending) form.requestSubmit();
+      }
+    });
+    suggestions.addEventListener('click', event => {
+      const button = event.target.closest('button');
+      if (!button || pending) return;
+      input.value = button.textContent;
+      form.requestSubmit();
+    });
+    reset.addEventListener('click', () => { newDiscussion(); input.focus(); });
+    newDiscussion();
+  </script>
+</body>
+</html>
