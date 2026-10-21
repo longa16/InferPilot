@@ -36,9 +36,9 @@ docker compose down
 
 ## Réponses en streaming
 
-La messagerie appelle `POST /api/chat/stream` et affiche les fragments dès leur réception depuis Groq (`stream: true`). La recherche et le reranking s’exécutent avant l’apparition des premiers mots. L’interface étale l’écriture à l’écran pour rester lisible, y compris quand Groq ou le réseau regroupe plusieurs fragments. Le choix « Vitesse d’écriture » permet de passer de Lente (30 caractères/s) à Normale (60 caractères/s, par défaut) ou Rapide (120 caractères/s), même pendant une réponse. La réception réseau continue indépendamment ; le champ d’envoi redevient disponible une fois le texte entièrement affiché.
+La messagerie appelle `POST /api/chat/stream` et affiche les fragments dès leur réception depuis Groq (`stream: true`). La recherche et le reranking s’exécutent avant l’apparition des premiers mots. Il n’y a pas de délai d’animation ajouté pour simuler la génération.
 
-Le flux SSE contient les événements `start` (mode), `token` (`text`), puis `done` si la réponse est complète et ses références valides. En cas d’échec, l’événement `error` remplace `done` : après le début du flux, le statut HTTP peut déjà être 200. Une coupure sans `done` est aussi traitée comme un échec. La messagerie annule l’écriture restante et remplace une réponse incomplète ou invalide par un message permettant de réessayer. Les références restent masquées même lorsqu’elles arrivent en plusieurs fragments.
+Le flux SSE contient les événements `start` (mode), `token` (`text`), puis `done` si la réponse est complète et ses références valides. En cas d’échec, l’événement `error` remplace `done` : après le début du flux, le statut HTTP peut déjà être 200. Une coupure sans `done` est aussi traitée comme un échec. La messagerie remplace une réponse incomplète ou invalide par un message permettant de réessayer. Les références restent masquées même lorsqu’elles arrivent en plusieurs fragments.
 
 ```sh
 curl -N http://localhost:8000/api/chat/stream -H 'Content-Type: application/json' \
@@ -78,7 +78,7 @@ GENERATION_MODE=extractive uv run --frozen python -m scripts.smoke
 GENERATION_MODE=groq uv run --frozen python -m scripts.smoke
 ```
 
-Les tests unitaires couvrent le découpage, BM25, RRF, l'utilisation du reranker, les validations API, le mode extractif et le contrat Groq avec doubles de test (authentification, choix du modèle, citations, réponses vides ou tronquées et erreurs HTTP 401/429/500). Les tests de streaming vérifient aussi la réception de fragments avant la fin du flux, les erreurs, les coupures et la fermeture de la connexion amont. Le test navigateur facultatif `node scripts/check_chat_stream.cjs` requiert Playwright avec Chromium accessible à Node ; `CHROMIUM_PATH` permet de choisir un Chromium système. Il vérifie les étapes réellement peintes même si tous les événements arrivent en un seul paquet, les trois vitesses, le masquage des références, la conservation du brouillon, les erreurs et le mobile. Ils ne remplacent pas les tests avec les vrais modèles. `scripts/smoke.py` vérifie la recherche en français, anglais et allemand.
+Les tests unitaires couvrent le découpage, BM25, RRF, l'utilisation du reranker, les validations API, le mode extractif et le contrat Groq avec doubles de test (authentification, choix du modèle, citations, réponses vides ou tronquées et erreurs HTTP 401/429/500). Les tests de streaming vérifient aussi la réception de fragments avant la fin du flux, les erreurs, les coupures et la fermeture de la connexion amont. Ils ne remplacent pas les tests avec les vrais modèles. `scripts/smoke.py` vérifie la recherche en français, anglais et allemand.
 
 Les téléchargements nécessitent `huggingface.co`, ses sous-domaines et `*.hf.co`. La génération nécessite `api.groq.com` et Docker nécessite les registres Docker ainsi que leurs destinations de stockage. En cas de refus du proxy, autoriser les destinations nécessaires sans désactiver TLS. La page ne sera servie qu'une fois les modèles chargés.
 
@@ -95,7 +95,7 @@ Pas de connecteur commandes, paiement, stock temps réel, historique, authentifi
 - Installation locale avec `uv sync --frozen` : réussie.
 - Trente et un tests unitaires/API : réussis (modèles et API Groq simulés dans ces tests).
 - Validation du fichier Compose : réussie ; un seul service applicatif.
-- Messagerie en streaming : vérifiée dans Chromium avec un serveur ASGI réel et Groq simulé (affichage progressif, erreurs, déconnexion, mobile). L’écriture cadencée est aussi vérifiée avec une réponse SSE reçue en bloc et des vitesses différentes.
+- Messagerie en streaming : vérifiée dans Chromium avec un serveur ASGI réel et Groq simulé (affichage progressif, erreurs, déconnexion, mobile).
 - Chargement des vrais embeddings : bloqué par HTTP 403 du proxy sur Hugging Face.
 - Construction Docker : bloquée par la résolution réseau pendant le téléchargement des dépendances dans le conteneur de build.
 - Appel réel à Groq : **non validé**, clé absente et accès à `api.groq.com` refusé par le proxy.
