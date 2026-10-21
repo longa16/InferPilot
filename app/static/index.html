@@ -10,10 +10,10 @@
     * { box-sizing: border-box; }
     [hidden] { display: none !important; }
     body { margin: 0; min-height: 100dvh; padding: 28px 20px; }
-    button, textarea { font: inherit; }
+    button, textarea, select { font: inherit; }
     button { cursor: pointer; }
     button:disabled { cursor: wait; opacity: .5; }
-    button:focus-visible, textarea:focus-visible { outline: 3px solid #bc8c44; outline-offset: 4px; }
+    button:focus-visible, textarea:focus-visible, select:focus-visible { outline: 3px solid #bc8c44; outline-offset: 4px; }
     .shell { max-width: 920px; margin: auto; }
     .brand { display: flex; align-items: center; justify-content: space-between; gap: 16px; padding: 0 6px 22px; }
     .wordmark { font-size: 17px; letter-spacing: .13em; font-weight: 750; }
@@ -46,7 +46,9 @@
     textarea::placeholder { color: #829187; }
     .send { flex: 0 0 42px; height: 42px; border: 0; border-radius: 11px; background: #195443; color: #fff; display: grid; place-items: center; }
     .send:hover:not(:disabled) { background: #276a53; }
-    .composer-note { display: flex; justify-content: space-between; gap: 12px; min-height: 18px; margin-top: 9px; color: #7e8c81; font-size: 10px; }
+    .composer-note { display: flex; align-items: center; flex-wrap: wrap; justify-content: space-between; gap: 12px; min-height: 18px; margin-top: 9px; color: #7e8c81; font-size: 10px; }
+    .speed-control { display: flex; margin-left: auto; align-items: center; gap: 5px; white-space: nowrap; }
+    .speed-control select { border: 0; border-radius: 4px; background: #f0f4ef; color: #526d5f; padding: 2px 4px; font-size: 10px; }
     footer { text-align: center; padding: 16px 15px 0; color: #6c7e70; font-size: 10px; line-height: 1.7; }
     svg { width: 20px; height: 20px; }
     .streaming .bubble::after { content: "▍"; margin-left: 2px; color: #739180; }
@@ -71,7 +73,9 @@
       .composer-area { padding: 12px; }
       .suggestions { padding: 0 12px 14px; }
       .keyboard-hint { display: none; }
-      footer { padding: 12px 4px 0; }
+      .speed-control { display: flex; margin-left: auto; align-items: center; gap: 5px; white-space: nowrap; }
+    .speed-control select { border: 0; border-radius: 4px; background: #f0f4ef; color: #526d5f; padding: 2px 4px; font-size: 10px; }
+    footer { padding: 12px 4px 0; }
     }
   </style>
 </head>
@@ -98,7 +102,7 @@
             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 19V5m-6 6 6-6 6 6"/></svg>
           </button>
         </form>
-        <div class="composer-note"><span id="status" role="status">À votre écoute</span><span class="keyboard-hint">Entrée pour envoyer · Maj + Entrée pour revenir à la ligne</span></div>
+        <div class="composer-note"><span id="status" role="status">À votre écoute</span><label class="speed-control" for="typing-speed">Vitesse d’écriture<select id="typing-speed"><option value="30">Lente</option><option value="60" selected>Normale</option><option value="120">Rapide</option></select></label></div>
       </div>
     </main>
     <footer>Les réponses peuvent contenir des erreurs. Ne partagez aucune information sensible.<br>En mode génération, votre question et les extraits utiles sont transmis à Groq.</footer>
@@ -111,6 +115,7 @@
     const messages = document.querySelector('#messages');
     const suggestions = document.querySelector('#suggestions');
     const status = document.querySelector('#status');
+    const typingSpeed = document.querySelector('#typing-speed');
     let pending = false;
 
     function scrollToLatest() { messages.scrollTop = messages.scrollHeight; }
@@ -126,9 +131,13 @@
       // A citation may arrive over several tokens: hide its unfinished suffix too.
       if (streaming) text = text.replace(/(?:\[|【)(?:S[\d\s,;S]*)?$/gi, "");
       // Keep source references out of the chat; never interpret model output as HTML.
-      const clean = text.replace(/(?:\[|【)S\d+(?:\s*[,;]\s*S?\d+)*(?:\]|】)/gi, '')
+      let clean = text.replace(/(?:\[|【)S\d+(?:\s*[,;]\s*S?\d+)*(?:\]|】)/gi, '')
         .replace(/[^\S\n]+([.,;:!?])/g, '$1').replace(/ {2,}/g, ' ').trim();
-      for (const part of clean.split(/(\*\*[^*]+\*\*)/g)) {
+      if (streaming) {
+        if (clean.endsWith('*') && !clean.endsWith('**')) clean = clean.slice(0, -1);
+        if ((clean.match(/\*\*/g) || []).length % 2) clean += '**';
+      }
+      for (const part of clean.split(/(\*\*[^*]*\*\*)/g)) {
         if (part.startsWith('**') && part.endsWith('**')) {
           const strong = document.createElement('strong');
           strong.textContent = part.slice(2, -2);
@@ -137,6 +146,62 @@
           element.append(document.createTextNode(part));
         }
       }
+    }
+
+    function createWriter(bubble, onPaint) {
+      // Separate network reception from visible writing. Even a burst of SSE
+      // events must take several painted frames, rather than one DOM update.
+      const characters = [];
+      let shown = 0, frame = 0, previous = null, credit = 0;
+      let finished = false, cancelled = false;
+      let resolveDrain;
+      const drained = new Promise(resolve => { resolveDrain = resolve; });
+
+      function schedule() {
+        if (!frame && !cancelled) frame = requestAnimationFrame(paint);
+      }
+
+      function paint(now) {
+        frame = 0;
+        if (cancelled) return;
+        const elapsed = previous === null ? 0 : Math.min(now - previous, 50);
+        previous = now;
+        credit += elapsed * Number(typingSpeed.value) / 1000;
+        const count = Math.min(characters.length - shown, Math.floor(credit));
+        if (count > 0) {
+          shown += count;
+          credit -= count;
+          const atBottom = messages.scrollHeight - messages.scrollTop - messages.clientHeight < 80;
+          renderAnswer(bubble, characters.slice(0, shown).join(''), true);
+          onPaint();
+          if (atBottom) scrollToLatest();
+        }
+        if (shown < characters.length) {
+          schedule();
+        } else {
+          previous = null;
+          credit = 0;
+          if (finished) resolveDrain();
+        }
+      }
+
+      return {
+        append(text) {
+          if (cancelled || finished) return;
+          characters.push(...Array.from(text));
+          schedule();
+        },
+        finish() {
+          finished = true;
+          schedule();
+          return drained;
+        },
+        cancel() {
+          cancelled = true;
+          cancelAnimationFrame(frame);
+          resolveDrain();
+        }
+      };
     }
 
     function addMessage(role, text, { loading = false, error = false } = {}) {
@@ -241,6 +306,11 @@
       const controller = new AbortController();
       const timeout = setTimeout(() => controller.abort(), 120000);
       let text = '', mode = 'groq', completed = false;
+      const writer = createWriter(bubble, () => {
+        reply.classList.add('streaming');
+        bubble.removeAttribute('aria-label');
+        status.textContent = 'NovaMaison écrit…';
+      });
       try {
         const response = await fetch('/api/chat/stream', {
           method: 'POST', headers: { 'Content-Type': 'application/json', 'Accept': 'text/event-stream' },
@@ -253,26 +323,24 @@
           if (name === 'token' && mode !== 'extractive') {
             if (completed || typeof data.text !== 'string') throw new Error('protocol');
             text += data.text;
-            const atBottom = messages.scrollHeight - messages.scrollTop - messages.clientHeight < 80;
-            reply.classList.add('streaming');
-            bubble.removeAttribute('aria-label');
-            renderAnswer(bubble, text, true);
-            status.textContent = 'NovaMaison écrit…';
-            if (atBottom) scrollToLatest();
+            writer.append(data.text);
           }
           if (name === 'done') {
             if (mode !== 'extractive' && !text.trim()) throw new Error('empty');
             completed = true;
-            reply.classList.remove('streaming');
-            bubble.removeAttribute('aria-label');
-            renderAnswer(bubble, mode === 'extractive'
-              ? 'Je ne peux pas formuler de réponse pour le moment. Vous pouvez contacter assistance@novamaison.example.'
-              : text);
           }
         });
         if (!completed) throw new Error('interrupted');
+        clearTimeout(timeout);
+        await writer.finish();
+        reply.classList.remove('streaming');
+        bubble.removeAttribute('aria-label');
+        renderAnswer(bubble, mode === 'extractive'
+          ? 'Je ne peux pas formuler de réponse pour le moment. Vous pouvez contacter assistance@novamaison.example.'
+          : text);
         status.textContent = 'À votre écoute';
       } catch (error) {
+        writer.cancel();
         controller.abort();
         reply.classList.remove('streaming');
         reply.classList.add('error');
@@ -283,6 +351,7 @@
         if (!input.value.trim()) input.value = question;
         status.textContent = 'Message non traité · Vous pouvez réessayer';
       } finally {
+        writer.cancel();
         clearTimeout(timeout);
         reply.removeAttribute('aria-busy');
         pending = false;
