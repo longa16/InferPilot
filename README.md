@@ -8,7 +8,7 @@ Assistant RAG pour une **entreprise e-commerce fictive**, interface web françai
 2. Embeddings multilingues locaux ONNX : `sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2` (384 dimensions). Vecteurs normalisés, similarité cosinus en mémoire.
 3. Recherche lexicale BM25 + recherche vectorielle, 12 candidats par branche. Fusion **RRF** avec constante 60 ; exclusion des résultats lexicaux sans correspondance.
 4. Reranking des 12 candidats fusionnés avec le cross-encoder multilingue **`BAAI/bge-reranker-v2-m3-int8`** ; sélection des 4 premiers.
-5. Génération via **l’API Groq**, modèle par défaut `llama-3.3-70b-versatile`, température 0, réponse limitée à 800 tokens. Prompt limité aux sources et citations `[S…]`. L’API conserve les passages et scores pour le diagnostic ; l’interface de messagerie affiche uniquement les réponses, sans les chunks ni leurs références.
+5. Génération via **l’API Groq**, modèle par défaut `llama-3.3-70b-versatile`, température 0, réponse limitée à 800 tokens. Prompt limité aux sources et citations `[S…]`. L’interface reçoit les fragments générés via un flux SSE et les affiche au fur et à mesure, sans les chunks ni leurs références. L’API JSON conserve les passages et scores pour le diagnostic.
 
 Pas de base vectorielle ni de GPU requis : adapté à un petit catalogue. L'index est reconstruit au démarrage ; le cache des modèles est conservé. Après modification des documents, redémarrer l'application. L’interface conserve les bulles des échanges tant que la page reste ouverte ; « Nouvelle discussion » les efface. Cet historique n’est ni enregistré ni transmis au modèle : chaque question est traitée indépendamment, sans mémoire conversationnelle.
 
@@ -33,6 +33,19 @@ docker compose down
 ```
 
 `/health` valide le chargement de l'index, pas l'authentification ou les quotas Groq. La requête `/api/chat` valide le pipeline complet. Le volume `models` conserve les poids ; `down` ne le supprime pas. Pour choisir un autre modèle Groq disponible sur votre compte, modifier `GROQ_MODEL` dans `.env` puis relancer Compose.
+
+## Réponses en streaming
+
+La messagerie appelle `POST /api/chat/stream` et affiche les fragments dès leur réception depuis Groq (`stream: true`). La recherche et le reranking s’exécutent avant l’apparition des premiers mots. Il n’y a pas de délai d’animation ajouté pour simuler la génération.
+
+Le flux SSE contient les événements `start` (mode), `token` (`text`), puis `done` si la réponse est complète et ses références valides. En cas d’échec, l’événement `error` remplace `done` : après le début du flux, le statut HTTP peut déjà être 200. Une coupure sans `done` est aussi traitée comme un échec. La messagerie remplace une réponse incomplète ou invalide par un message permettant de réessayer. Les références restent masquées même lorsqu’elles arrivent en plusieurs fragments.
+
+```sh
+curl -N http://localhost:8000/api/chat/stream -H 'Content-Type: application/json' \
+  -d '{"question":"Comment retourner un article ?"}'
+```
+
+L’endpoint JSON `POST /api/chat` reste disponible. Fermer la page interrompt le flux Groq. Derrière un reverse proxy, désactiver la mise en tampon et prévoir un délai de lecture suffisant (par exemple `proxy_buffering off` avec Nginx). L’API envoie également `X-Accel-Buffering: no` et `Cache-Control: no-cache, no-transform`.
 
 ## Développement local
 
@@ -65,7 +78,7 @@ GENERATION_MODE=extractive uv run --frozen python -m scripts.smoke
 GENERATION_MODE=groq uv run --frozen python -m scripts.smoke
 ```
 
-Les tests unitaires couvrent le découpage, BM25, RRF, l'utilisation du reranker, les validations API, le mode extractif et le contrat Groq avec doubles de test (authentification, choix du modèle, citations, réponses vides ou tronquées et erreurs HTTP 401/429/500). Ils ne remplacent pas les tests avec les vrais modèles. `scripts/smoke.py` vérifie la recherche en français, anglais et allemand.
+Les tests unitaires couvrent le découpage, BM25, RRF, l'utilisation du reranker, les validations API, le mode extractif et le contrat Groq avec doubles de test (authentification, choix du modèle, citations, réponses vides ou tronquées et erreurs HTTP 401/429/500). Les tests de streaming vérifient aussi la réception de fragments avant la fin du flux, les erreurs, les coupures et la fermeture de la connexion amont. Ils ne remplacent pas les tests avec les vrais modèles. `scripts/smoke.py` vérifie la recherche en français, anglais et allemand.
 
 Les téléchargements nécessitent `huggingface.co`, ses sous-domaines et `*.hf.co`. La génération nécessite `api.groq.com` et Docker nécessite les registres Docker ainsi que leurs destinations de stockage. En cas de refus du proxy, autoriser les destinations nécessaires sans désactiver TLS. La page ne sera servie qu'une fois les modèles chargés.
 
@@ -80,8 +93,9 @@ Pas de connecteur commandes, paiement, stock temps réel, historique, authentifi
 ## État vérifié dans l'environnement cloud
 
 - Installation locale avec `uv sync --frozen` : réussie.
-- Quatorze tests unitaires/API : réussis (modèles et API Groq simulés dans ces tests).
+- Trente et un tests unitaires/API : réussis (modèles et API Groq simulés dans ces tests).
 - Validation du fichier Compose : réussie ; un seul service applicatif.
+- Messagerie en streaming : vérifiée dans Chromium avec un serveur ASGI réel et Groq simulé (affichage progressif, erreurs, déconnexion, mobile).
 - Chargement des vrais embeddings : bloqué par HTTP 403 du proxy sur Hugging Face.
 - Construction Docker : bloquée par la résolution réseau pendant le téléchargement des dépendances dans le conteneur de build.
 - Appel réel à Groq : **non validé**, clé absente et accès à `api.groq.com` refusé par le proxy.

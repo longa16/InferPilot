@@ -49,6 +49,7 @@
     .composer-note { display: flex; justify-content: space-between; gap: 12px; min-height: 18px; margin-top: 9px; color: #7e8c81; font-size: 10px; }
     footer { text-align: center; padding: 16px 15px 0; color: #6c7e70; font-size: 10px; line-height: 1.7; }
     svg { width: 20px; height: 20px; }
+    .streaming .bubble::after { content: "▍"; margin-left: 2px; color: #739180; }
     .typing { display: flex; gap: 5px; padding: 8px 0; }
     .typing span { width: 5px; height: 5px; border-radius: 50%; background: #739180; animation: pulse 1.2s infinite; }
     .typing span:nth-child(2) { animation-delay: .15s; }
@@ -120,7 +121,10 @@
       send.disabled = pending || input.value.trim().length < 2;
     }
 
-    function renderAnswer(element, text) {
+    function renderAnswer(element, text, streaming = false) {
+      element.replaceChildren();
+      // A citation may arrive over several tokens: hide its unfinished suffix too.
+      if (streaming) text = text.replace(/(?:\[|【)(?:S[\d\s,;S]*)?$/gi, "");
       // Keep source references out of the chat; never interpret model output as HTML.
       const clean = text.replace(/(?:\[|【)S\d+(?:\s*[,;]\s*S?\d+)*(?:\]|】)/gi, '')
         .replace(/[^\S\n]+([.,;:!?])/g, '$1').replace(/ {2,}/g, ' ').trim();
@@ -181,6 +185,45 @@
       resizeInput();
     }
 
+    async function readEventStream(response, onEvent) {
+      if (!response.body || !response.headers.get('Content-Type')?.includes('text/event-stream')) {
+        throw new Error('stream');
+      }
+      const reader = response.body.getReader();
+      const decoder = new TextDecoder();
+      let buffer = '', name = 'message', data = [];
+      function line(text) {
+        if (text === '') {
+          if (data.length) onEvent(name, JSON.parse(data.join('\n')));
+          name = 'message';
+          data = [];
+        } else if (text.startsWith('event:')) {
+          name = text.slice(6).trim();
+        } else if (text.startsWith('data:')) {
+          data.push(text.slice(5).replace(/^ /, ''));
+        }
+      }
+      try {
+        while (true) {
+          const { value, done } = await reader.read();
+          buffer += done ? decoder.decode() : decoder.decode(value, { stream: true });
+          let end;
+          while ((end = buffer.indexOf('\n')) !== -1) {
+            line(buffer.slice(0, end).replace(/\r$/, ''));
+            buffer = buffer.slice(end + 1);
+          }
+          if (done) {
+            if (buffer) line(buffer.replace(/\r$/, ''));
+            line('');
+            return;
+          }
+        }
+      } finally {
+        await reader.cancel().catch(() => {});
+        reader.releaseLock();
+      }
+    }
+
     form.addEventListener('submit', async event => {
       event.preventDefault();
       const question = input.value.trim();
@@ -191,34 +234,57 @@
       addMessage('user', question);
       input.value = '';
       resizeInput();
-      const typing = addMessage('assistant', '', { loading: true });
+      const reply = addMessage('assistant', '', { loading: true });
+      const bubble = reply.querySelector('.bubble');
+      reply.setAttribute('aria-busy', 'true');
       status.textContent = 'NovaMaison prépare sa réponse…';
       const controller = new AbortController();
-      const timeout = setTimeout(() => controller.abort(), 90000);
+      const timeout = setTimeout(() => controller.abort(), 120000);
+      let text = '', mode = 'groq', completed = false;
       try {
-        const response = await fetch('/api/chat', {
-          method: 'POST', headers: { 'Content-Type': 'application/json' },
+        const response = await fetch('/api/chat/stream', {
+          method: 'POST', headers: { 'Content-Type': 'application/json', 'Accept': 'text/event-stream' },
           body: JSON.stringify({ question }), signal: controller.signal
         });
-        const data = await response.json();
         if (!response.ok) throw new Error('service');
-        if (typeof data.answer !== 'string' || !data.answer.trim()) throw new Error('empty');
-        const answer = data.mode === 'extractive'
-          ? 'Je ne peux pas formuler de réponse pour le moment. Vous pouvez contacter assistance@novamaison.example.'
-          : data.answer;
-        typing.remove();
-        addMessage('assistant', answer);
+        await readEventStream(response, (name, data) => {
+          if (name === 'error') throw new Error('generation');
+          if (name === 'start') mode = data.mode;
+          if (name === 'token' && mode !== 'extractive') {
+            if (completed || typeof data.text !== 'string') throw new Error('protocol');
+            text += data.text;
+            const atBottom = messages.scrollHeight - messages.scrollTop - messages.clientHeight < 80;
+            reply.classList.add('streaming');
+            bubble.removeAttribute('aria-label');
+            renderAnswer(bubble, text, true);
+            status.textContent = 'NovaMaison écrit…';
+            if (atBottom) scrollToLatest();
+          }
+          if (name === 'done') {
+            if (mode !== 'extractive' && !text.trim()) throw new Error('empty');
+            completed = true;
+            reply.classList.remove('streaming');
+            bubble.removeAttribute('aria-label');
+            renderAnswer(bubble, mode === 'extractive'
+              ? 'Je ne peux pas formuler de réponse pour le moment. Vous pouvez contacter assistance@novamaison.example.'
+              : text);
+          }
+        });
+        if (!completed) throw new Error('interrupted');
         status.textContent = 'À votre écoute';
       } catch (error) {
-        typing.remove();
-        addMessage('assistant', error.name === 'AbortError'
+        controller.abort();
+        reply.classList.remove('streaming');
+        reply.classList.add('error');
+        bubble.removeAttribute('aria-label');
+        renderAnswer(bubble, error.name === 'AbortError'
           ? 'La réponse prend plus de temps que prévu. Vous pouvez réessayer dans un instant.'
-          : 'Je n’ai pas pu vous répondre pour le moment. Réessayez dans un instant ou contactez assistance@novamaison.example.', { error: true });
-        // Preserve a draft typed while waiting; otherwise restore the failed message.
+          : 'La réponse n’a pas pu être terminée. Réessayez dans un instant ou contactez assistance@novamaison.example.');
         if (!input.value.trim()) input.value = question;
         status.textContent = 'Message non traité · Vous pouvez réessayer';
       } finally {
         clearTimeout(timeout);
+        reply.removeAttribute('aria-busy');
         pending = false;
         reset.disabled = false;
         resizeInput();

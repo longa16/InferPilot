@@ -5,6 +5,7 @@ from collections import Counter
 import math
 import re
 import os
+import json
 import numpy as np
 
 
@@ -121,6 +122,27 @@ Cite chaque affirmation factuelle avec un identifiant fourni, par exemple [S3].
 Ne cite jamais de source absente. Reste concis et signale les limites pertinentes.'''
 
 
+def groq_request(question: str, sources: list[dict], *, stream: bool) -> tuple[dict, dict]:
+    api_key = os.getenv('GROQ_API_KEY', '').strip()
+    if not api_key:
+        raise ValueError('GROQ_API_KEY est requis pour la génération Groq')
+    return {'Authorization': f'Bearer {api_key}'}, {
+        'model': os.getenv('GROQ_MODEL', 'llama-3.3-70b-versatile'), 'stream': stream,
+        'temperature': 0, 'max_completion_tokens': 800,
+        'messages': [{'role': 'system', 'content': SYSTEM_PROMPT},
+                     {'role': 'user', 'content': 'Sources :\n' + '\n\n'.join(
+                         f"[{s['id']}] {s['text']}" for s in sources) + '\n\nQuestion : ' + question}]}
+
+
+def validate_answer(content: str, sources: list[dict]) -> None:
+    if not isinstance(content, str) or not content.strip():
+        raise ValueError('Réponse vide ou références invalides du modèle')
+    allowed = {s['id'] for s in sources}
+    cited = set(re.findall(r'\[(S\d+)\]', content))
+    if cited - allowed:
+        raise ValueError('Réponse vide ou références invalides du modèle')
+
+
 async def answer(question: str, sources: list[dict]) -> str:
     mode = os.getenv('GENERATION_MODE', 'groq')
     if mode == 'extractive':
@@ -128,27 +150,70 @@ async def answer(question: str, sources: list[dict]) -> str:
             f"[{s['id']}] {s['text']}" for s in sources)
     if mode != 'groq':
         raise ValueError('GENERATION_MODE doit être extractive ou groq')
-    api_key = os.getenv('GROQ_API_KEY', '').strip()
-    if not api_key:
-        raise ValueError('GROQ_API_KEY est requis pour la génération Groq')
     import httpx
+    headers, payload = groq_request(question, sources, stream=False)
     async with httpx.AsyncClient(timeout=httpx.Timeout(60, connect=10)) as client:
         response = await client.post('https://api.groq.com/openai/v1/chat/completions',
-            headers={'Authorization': f'Bearer {api_key}'}, json={
-            'model': os.getenv('GROQ_MODEL', 'llama-3.3-70b-versatile'), 'stream': False,
-            'temperature': 0, 'max_completion_tokens': 800,
-            'messages': [{'role': 'system', 'content': SYSTEM_PROMPT},
-                         {'role': 'user', 'content': 'Sources :\n' + '\n\n'.join(
-                             f"[{s['id']}] {s['text']}" for s in sources) + '\n\nQuestion : ' + question}]})
+                                     headers=headers, json=payload)
         response.raise_for_status()
         choice = response.json()['choices'][0]
         if choice.get('finish_reason') != 'stop':
             raise ValueError('Réponse Groq incomplète')
         content = choice['message']['content']
-        if not isinstance(content, str) or not content.strip():
-            raise ValueError('Réponse vide ou références invalides du modèle')
-        allowed = {s['id'] for s in sources}
-        cited = set(re.findall(r'\[(S\d+)\]', content))
-        if cited - allowed:
-            raise ValueError('Réponse vide ou références invalides du modèle')
+        validate_answer(content, sources)
         return content
+
+
+async def sse_data(lines):
+    """Read SSE data independently of HTTP packet boundaries and comments."""
+    data = []
+    async for line in lines:
+        if line == '':
+            if data:
+                yield '\n'.join(data)
+                data = []
+        elif line.startswith('data:'):
+            data.append(line[5:].removeprefix(' '))
+    if data:
+        yield '\n'.join(data)
+
+
+async def stream_answer(question: str, sources: list[dict]):
+    """Yield Groq deltas immediately; validate the complete response before success."""
+    mode = os.getenv('GENERATION_MODE', 'groq')
+    if mode == 'extractive':
+        yield await answer(question, sources)
+        return
+    if mode != 'groq':
+        raise ValueError('GENERATION_MODE doit être extractive ou groq')
+    import httpx
+    headers, payload = groq_request(question, sources, stream=True)
+    parts = []
+    finish_reason = None
+    complete = False
+    async with httpx.AsyncClient(timeout=httpx.Timeout(60, connect=10)) as client:
+        async with client.stream('POST', 'https://api.groq.com/openai/v1/chat/completions',
+                                 headers=headers, json=payload) as response:
+            response.raise_for_status()
+            async for data in sse_data(response.aiter_lines()):
+                if data == '[DONE]':
+                    complete = True
+                    break
+                event = json.loads(data)
+                if event.get('error'):
+                    raise ValueError('Erreur dans le flux Groq')
+                choices = event.get('choices', [])
+                if not choices:
+                    continue  # Some providers send a separate usage event.
+                choice = choices[0]
+                delta = choice.get('delta', {}).get('content')
+                if delta is not None and not isinstance(delta, str):
+                    raise ValueError('Fragment Groq invalide')
+                if delta:
+                    parts.append(delta)
+                    yield delta
+                if choice.get('finish_reason') is not None:
+                    finish_reason = choice['finish_reason']
+    if not complete or finish_reason != 'stop':
+        raise ValueError('Réponse Groq incomplète')
+    validate_answer(''.join(parts), sources)
