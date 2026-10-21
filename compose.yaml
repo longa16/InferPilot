@@ -7,6 +7,7 @@ services:
       GENERATION_MODE: ${GENERATION_MODE:-groq}
       GROQ_API_KEY: ${GROQ_API_KEY:-}
       GROQ_MODEL: ${GROQ_MODEL:-llama-3.3-70b-versatile}
+      HF_TOKEN: ${HF_TOKEN:-}
     volumes:
       - models:/srv/.cache
     healthcheck:
