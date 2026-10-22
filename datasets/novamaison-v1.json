@@ -1,0 +1,424 @@
+{
+  "version": "novamaison-faq-v1",
+  "protocol": "fixed public context; generation-only, not full retrieval pipeline",
+  "cases": [
+    {
+      "id": "return-1",
+      "question": "Comment retourner un article ?",
+      "documents": [
+        "04-retours-garanties.md"
+      ],
+      "expected": [
+        [
+          "30"
+        ],
+        [
+          "assistance@novamaison.example"
+        ]
+      ],
+      "cacheable": true,
+      "scenario": "static_faq"
+    },
+    {
+      "id": "shipping-1",
+      "question": "Combien coûte la livraison standard ?",
+      "documents": [
+        "03-livraison-paiement.md"
+      ],
+      "expected": [
+        [
+          "4,90",
+          "4.90"
+        ]
+      ],
+      "cacheable": true,
+      "scenario": "static_faq"
+    },
+    {
+      "id": "lamp-1",
+      "question": "Quel est le prix de la lampe Aurora ?",
+      "documents": [
+        "02-produits.md"
+      ],
+      "expected": [
+        [
+          "49,90",
+          "49.90"
+        ]
+      ],
+      "cacheable": true,
+      "scenario": "static_faq"
+    },
+    {
+      "id": "bottle-1",
+      "question": "La gourde Terra passe-t-elle au lave-vaisselle ?",
+      "documents": [
+        "02-produits.md"
+      ],
+      "expected": [
+        [
+          "main"
+        ],
+        [
+          "non",
+          "ne",
+          "pas",
+          "uniquement",
+          "seulement"
+        ]
+      ],
+      "cacheable": true,
+      "scenario": "static_faq"
+    },
+    {
+      "id": "bag-1",
+      "question": "Quelle est la capacité du sac Comète ?",
+      "documents": [
+        "02-produits.md"
+      ],
+      "expected": [
+        [
+          "20"
+        ]
+      ],
+      "cacheable": true,
+      "scenario": "static_faq"
+    },
+    {
+      "id": "support-1",
+      "question": "Quelle charge supporte le support Alto ?",
+      "documents": [
+        "02-produits.md"
+      ],
+      "expected": [
+        [
+          "5"
+        ]
+      ],
+      "cacheable": true,
+      "scenario": "static_faq"
+    },
+    {
+      "id": "payment-1",
+      "question": "Quels moyens de paiement acceptez-vous ?",
+      "documents": [
+        "03-livraison-paiement.md"
+      ],
+      "expected": [
+        [
+          "visa"
+        ],
+        [
+          "mastercard"
+        ],
+        [
+          "paypal"
+        ]
+      ],
+      "cacheable": true,
+      "scenario": "static_faq"
+    },
+    {
+      "id": "warranty-1",
+      "question": "Quelle est la durée de la garantie ?",
+      "documents": [
+        "04-retours-garanties.md"
+      ],
+      "expected": [
+        [
+          "deux",
+          "2"
+        ]
+      ],
+      "cacheable": true,
+      "scenario": "static_faq"
+    },
+    {
+      "id": "return-2",
+      "question": "Comment retourner un article ?",
+      "documents": [
+        "04-retours-garanties.md"
+      ],
+      "expected": [
+        [
+          "30"
+        ],
+        [
+          "assistance@novamaison.example"
+        ]
+      ],
+      "cacheable": true,
+      "scenario": "exact_repeat"
+    },
+    {
+      "id": "shipping-2",
+      "question": "Combien coûte la livraison standard ?",
+      "documents": [
+        "03-livraison-paiement.md"
+      ],
+      "expected": [
+        [
+          "4,90",
+          "4.90"
+        ]
+      ],
+      "cacheable": true,
+      "scenario": "exact_repeat"
+    },
+    {
+      "id": "lamp-2",
+      "question": "Quel est le prix de la lampe Aurora ?",
+      "documents": [
+        "02-produits.md"
+      ],
+      "expected": [
+        [
+          "49,90",
+          "49.90"
+        ]
+      ],
+      "cacheable": true,
+      "scenario": "exact_repeat"
+    },
+    {
+      "id": "bottle-2",
+      "question": "La gourde Terra passe-t-elle au lave-vaisselle ?",
+      "documents": [
+        "02-produits.md"
+      ],
+      "expected": [
+        [
+          "main"
+        ],
+        [
+          "non",
+          "ne",
+          "pas",
+          "uniquement",
+          "seulement"
+        ]
+      ],
+      "cacheable": true,
+      "scenario": "exact_repeat"
+    },
+    {
+      "id": "bag-2",
+      "question": "Quelle est la capacité du sac Comète ?",
+      "documents": [
+        "02-produits.md"
+      ],
+      "expected": [
+        [
+          "20"
+        ]
+      ],
+      "cacheable": true,
+      "scenario": "exact_repeat"
+    },
+    {
+      "id": "support-2",
+      "question": "Quelle charge supporte le support Alto ?",
+      "documents": [
+        "02-produits.md"
+      ],
+      "expected": [
+        [
+          "5"
+        ]
+      ],
+      "cacheable": true,
+      "scenario": "exact_repeat"
+    },
+    {
+      "id": "payment-2",
+      "question": "Quels moyens de paiement acceptez-vous ?",
+      "documents": [
+        "03-livraison-paiement.md"
+      ],
+      "expected": [
+        [
+          "visa"
+        ],
+        [
+          "mastercard"
+        ],
+        [
+          "paypal"
+        ]
+      ],
+      "cacheable": true,
+      "scenario": "exact_repeat"
+    },
+    {
+      "id": "warranty-2",
+      "question": "Quelle est la durée de la garantie ?",
+      "documents": [
+        "04-retours-garanties.md"
+      ],
+      "expected": [
+        [
+          "deux",
+          "2"
+        ]
+      ],
+      "cacheable": true,
+      "scenario": "exact_repeat"
+    },
+    {
+      "id": "paraphrase-return",
+      "question": "Pendant combien de jours puis-je rendre un achat ?",
+      "documents": [
+        "04-retours-garanties.md"
+      ],
+      "expected": [
+        [
+          "30"
+        ]
+      ],
+      "cacheable": true,
+      "scenario": "paraphrase"
+    },
+    {
+      "id": "paraphrase-shipping",
+      "question": "Quel est le tarif du transport standard ?",
+      "documents": [
+        "03-livraison-paiement.md"
+      ],
+      "expected": [
+        [
+          "4,90",
+          "4.90"
+        ]
+      ],
+      "cacheable": true,
+      "scenario": "paraphrase"
+    },
+    {
+      "id": "delivery-area",
+      "question": "Livrez-vous à l’étranger ?",
+      "documents": [
+        "01-entreprise.md",
+        "03-livraison-paiement.md"
+      ],
+      "expected": [
+        [
+          "france",
+          "metropolitaine"
+        ]
+      ],
+      "cacheable": true,
+      "scenario": "static_faq"
+    },
+    {
+      "id": "aurora-battery",
+      "question": "La lampe Aurora possède-t-elle une batterie ?",
+      "documents": [
+        "02-produits.md"
+      ],
+      "expected": [
+        [
+          "sans batterie",
+          "pas de batterie",
+          "ne dispose pas",
+          "secteur"
+        ]
+      ],
+      "cacheable": true,
+      "scenario": "static_faq"
+    },
+    {
+      "id": "stock",
+      "question": "La gourde est-elle en stock en ce moment ?",
+      "documents": [
+        "02-produits.md",
+        "05-faq.md"
+      ],
+      "expected": [
+        [
+          "ne peux pas",
+          "pas acces",
+          "verifier",
+          "temps reel",
+          "aucun",
+          "ne dispose pas",
+          "ne connais pas"
+        ]
+      ],
+      "cacheable": false,
+      "scenario": "dynamic_not_cacheable"
+    },
+    {
+      "id": "order",
+      "question": "Où se trouve ma commande ?",
+      "documents": [
+        "03-livraison-paiement.md",
+        "05-faq.md"
+      ],
+      "expected": [
+        [
+          "ne peux pas",
+          "pas acces",
+          "suivi",
+          "support"
+        ]
+      ],
+      "cacheable": false,
+      "scenario": "personal_not_cacheable"
+    },
+    {
+      "id": "promotion",
+      "question": "Quel code promotionnel est actif aujourd’hui ?",
+      "documents": [
+        "05-faq.md"
+      ],
+      "expected": [
+        [
+          "aucun",
+          "pas de code",
+          "verifier"
+        ]
+      ],
+      "cacheable": false,
+      "scenario": "dynamic_not_cacheable"
+    },
+    {
+      "id": "outside",
+      "question": "Quel est le prix de votre télévision OLED ?",
+      "documents": [
+        "01-entreprise.md",
+        "05-faq.md"
+      ],
+      "expected": [
+        [
+          "ne sais pas",
+          "pas d",
+          "aucun",
+          "ne vend",
+          "ne propose",
+          "pas de television"
+        ]
+      ],
+      "cacheable": false,
+      "scenario": "out_of_corpus"
+    },
+    {
+      "id": "outside-2",
+      "question": "Proposez-vous une assurance automobile ?",
+      "documents": [
+        "01-entreprise.md",
+        "05-faq.md"
+      ],
+      "expected": [
+        [
+          "ne sais pas",
+          "pas d",
+          "aucun",
+          "ne propose",
+          "ne vend"
+        ]
+      ],
+      "cacheable": false,
+      "scenario": "out_of_corpus"
+    }
+  ]
+}

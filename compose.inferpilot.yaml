@@ -1,0 +1,58 @@
+services:
+  postgres:
+    image: postgres:17-alpine
+    environment:
+      POSTGRES_USER: inferpilot
+      POSTGRES_DB: inferpilot
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?Set a local PostgreSQL password in .env}
+    volumes:
+      - inferpilot-postgres:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U inferpilot -d inferpilot"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+  inferpilot:
+    build:
+      context: .
+      dockerfile: Dockerfile.inferpilot
+    ports:
+      - "127.0.0.1:8080:8080"
+    environment:
+      ENVIRONMENT: development
+      DATABASE_URL: postgresql://inferpilot:${POSTGRES_PASSWORD:?Set POSTGRES_PASSWORD}@postgres:5432/inferpilot
+      ADMIN_AUTH_SECRET: ${ADMIN_AUTH_SECRET:?Set a random secret with at least 32 characters}
+      HMAC_SECRET: ${HMAC_SECRET:?Set a random secret with at least 32 characters}
+      GROQ_API_KEY: ${GROQ_API_KEY:-}
+      GROQ_MODEL: ${GROQ_MODEL:-llama-3.3-70b-versatile}
+      AGENT_MODEL: ${AGENT_MODEL:-llama-3.3-70b-versatile}
+      PRICING_JSON: ${PRICING_JSON:-{}}
+      RETENTION_DAYS: ${RETENTION_DAYS:-30}
+      PORT: 8080
+    depends_on:
+      postgres:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", ".venv/bin/python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8080/ready')"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+  app:
+    build: .
+    profiles: ["novamaison"]
+    ports:
+      - "127.0.0.1:8000:8000"
+    environment:
+      GENERATION_MODE: groq
+      LLM_BASE_URL: http://inferpilot:8080/v1
+      LLM_GATEWAY_KEY: ${LLM_GATEWAY_KEY:-}
+      GROQ_MODEL: ${GROQ_MODEL:-llama-3.3-70b-versatile}
+      HF_TOKEN: ${HF_TOKEN:-}
+    volumes:
+      - models:/srv/.cache
+    depends_on:
+      inferpilot:
+        condition: service_healthy
+volumes:
+  inferpilot-postgres:
+  models:

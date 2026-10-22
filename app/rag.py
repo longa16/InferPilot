@@ -122,10 +122,15 @@ Cite chaque affirmation factuelle avec un identifiant fourni, par exemple [S3].
 Ne cite jamais de source absente. Reste concis et signale les limites pertinentes.'''
 
 
+def completion_url():
+    base = os.getenv('LLM_BASE_URL', 'https://api.groq.com/openai/v1').rstrip('/')
+    return base + '/chat/completions'
+
+
 def groq_request(question: str, sources: list[dict], *, stream: bool) -> tuple[dict, dict]:
-    api_key = os.getenv('GROQ_API_KEY', '').strip()
+    api_key = os.getenv('LLM_GATEWAY_KEY', '').strip() if os.getenv('LLM_BASE_URL') else os.getenv('GROQ_API_KEY', '').strip()
     if not api_key:
-        raise ValueError('GROQ_API_KEY est requis pour la génération Groq')
+        raise ValueError('LLM_GATEWAY_KEY est requis avec LLM_BASE_URL ; sinon GROQ_API_KEY est requis')
     return {'Authorization': f'Bearer {api_key}'}, {
         'model': os.getenv('GROQ_MODEL', 'llama-3.3-70b-versatile'), 'stream': stream,
         'temperature': 0, 'max_completion_tokens': 800,
@@ -153,7 +158,7 @@ async def answer(question: str, sources: list[dict]) -> str:
     import httpx
     headers, payload = groq_request(question, sources, stream=False)
     async with httpx.AsyncClient(timeout=httpx.Timeout(60, connect=10)) as client:
-        response = await client.post('https://api.groq.com/openai/v1/chat/completions',
+        response = await client.post(completion_url(),
                                      headers=headers, json=payload)
         response.raise_for_status()
         choice = response.json()['choices'][0]
@@ -192,7 +197,7 @@ async def stream_answer(question: str, sources: list[dict]):
     finish_reason = None
     complete = False
     async with httpx.AsyncClient(timeout=httpx.Timeout(60, connect=10)) as client:
-        async with client.stream('POST', 'https://api.groq.com/openai/v1/chat/completions',
+        async with client.stream('POST', completion_url(),
                                  headers=headers, json=payload) as response:
             response.raise_for_status()
             async for data in sse_data(response.aiter_lines()):
