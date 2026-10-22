@@ -17,10 +17,14 @@ def configure(path):
         value = secrets.token_hex(32)
         if found: text = text[:found.start()]+key+'='+value+text[found.end():]
         else: text += '\n'+key+'='+value+'\n'
+    if not re.search(r'^GEMINI_API_KEY=', text, re.MULTILINE):
+        text += '\n# Google Gemini API key for the InferPilot agent.\nGEMINI_API_KEY=\n'
+    if not re.search(r'^AGENT_MODEL=', text, re.MULTILINE):
+        text += 'AGENT_MODEL=gemini-flash-latest\n'
     path.write_text(text)
     try: path.chmod(0o600)
     except OSError: pass
-    print('Local configuration prepared; existing values preserved. Set GROQ_API_KEY and an accessible model in this file. No secrets printed.')
+    print('Local configuration prepared; existing values preserved. Set GROQ_API_KEY for NovaMaison, GEMINI_API_KEY for the agent, and their accessible model names. Existing AGENT_MODEL values are preserved; change an old Groq model to a Gemini model manually. No secrets printed.')
 
 
 if __name__ == '__main__':

@@ -25,7 +25,8 @@ services:
       HMAC_SECRET: ${HMAC_SECRET:?Set a random secret with at least 32 characters}
       GROQ_API_KEY: ${GROQ_API_KEY:-}
       GROQ_MODEL: ${GROQ_MODEL:-llama-3.3-70b-versatile}
-      AGENT_MODEL: ${AGENT_MODEL:-llama-3.3-70b-versatile}
+      GEMINI_API_KEY: ${GEMINI_API_KEY:-}
+      AGENT_MODEL: ${AGENT_MODEL:-gemini-flash-latest}
       PRICING_JSON: ${PRICING_JSON:-{}}
       RETENTION_DAYS: ${RETENTION_DAYS:-30}
       PORT: 8080

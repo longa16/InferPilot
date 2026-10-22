@@ -1,4 +1,4 @@
-"""Real PostgreSQL integration; the only simulated dependency is Groq transport.
+"""Real PostgreSQL integration; Groq and Google Gemini are simulated only at their HTTP transports.
 Never supplies synthetic monitoring data to a runtime endpoint.
 """
 import asyncio
@@ -71,9 +71,9 @@ def service():
     parts=urlsplit(DB_URL)
     url=urlunsplit(parts._replace(query=urlencode([*parse_qsl(parts.query),('options','-c search_path='+schema)],quote_via=quote)))
     settings=Settings(database_url=url,admin_secret='test-admin-'+'a'*32,hmac_secret='test-hmac-'+'b'*32,
-        groq_key='not-a-real-provider-key',model='test-model',agent_model='test-model',
+        groq_key='not-a-real-provider-key',gemini_key='not-a-real-google-key',model='test-model',agent_model='test-gemini-model',
         prices={'test-model':{'input_per_million':1,'output_per_million':2,'version':'TEST-ONLY','verified_at':'test fixture'}})
-    state={'calls':0,'status':200,'missing_done':False,'missing_usage':False,'planner':False}
+    state={'calls':0,'status':200,'missing_done':False,'missing_usage':False,'planner_calls':0}
     class Body(httpx.AsyncByteStream):
         async def __aiter__(self):
             for text in ['Bonjour ', 'été €']:
@@ -86,15 +86,42 @@ def service():
             yield ('data: '+json.dumps(last)+'\n\n').encode()
             if not state['missing_done']: yield b'data: [DONE]\n\n'
     def handle(request):
+        body=json.loads(request.content)
+        if request.url.host=='generativelanguage.googleapis.com':
+            state['planner_calls']+=1
+            assert str(request.url)=='https://generativelanguage.googleapis.com/v1beta/openai/chat/completions'
+            assert request.headers['authorization']=='Bearer not-a-real-google-key'
+            assert body['model']=='test-gemini-model'
+            assert body['max_tokens']==2048
+            if state.get('two_google_turns') and state['planner_calls']==1:
+                return httpx.Response(200,json={'choices':[{'finish_reason':'tool_calls','message':{
+                    'role':'assistant','content':None,'extra_content':{'google':{'opaque_state':'test-only-state'}},
+                    'tool_calls':[{'id':'signed_read','type':'function',
+                        'extra_content':{'google':{'thought_signature':'test-only-signature'}},
+                        'function':{'name':'get_latency_outliers','arguments':'{}'}}]}}]})
+            if state.get('two_google_turns'):
+                previous=body['messages'][-2]
+                assert previous['extra_content']['google']['opaque_state']=='test-only-state'
+                assert previous['tool_calls'][0]['extra_content']['google']['thought_signature']=='test-only-signature'
+                assert body['messages'][-1]['role']=='tool' and body['messages'][-1]['tool_call_id']=='signed_read'
+                assert len(json.loads(body['messages'][-1]['content']))==3
+            if state.get('google_no_tools'):
+                return httpx.Response(200,json={'choices':[{'finish_reason':'stop','message':{'role':'assistant','content':'No experiment proposed.'}}]})
+            if state.get('gemini_status'):
+                return httpx.Response(state['gemini_status'],json={'error':{'message':'test Google error'}})
+            if state.get('gemini_timeout'):
+                raise httpx.ReadTimeout('test Gemini timeout',request=request)
+            return httpx.Response(200,json={'model':'test-resolved-gemini','choices':[{
+                'finish_reason':state.get('google_finish','tool_calls'),'message':{'role':'assistant','tool_calls':[{
+                'id':'call_1','type':'function','function':{
+                    'name':('execute_arbitrary_sql' if state.get('bad_tool') else 'propose_experiment'),
+                    'arguments':'{"strategy":"exact_cache"}'}}]}}]})
+        assert request.url.host=='api.groq.com'
         state['calls']+=1
         if state.get('timeout'): raise httpx.ReadTimeout('test timeout',request=request)
-        body=json.loads(request.content)
         assert request.headers['authorization']=='Bearer not-a-real-provider-key'
         if state['status']!=200:
             return httpx.Response(state['status'],json={'error':{'message':'test upstream error'}})
-        if body.get('tools'):
-            return httpx.Response(200,json={'choices':[{'message':{'role':'assistant','tool_calls':[{
-                'id':'call_1','type':'function','function':{'name':('execute_arbitrary_sql' if state.get('bad_tool') else 'propose_experiment'),'arguments':'{"strategy":"exact_cache"}'}}]}}]})
         if body.get('stream'): return httpx.Response(200,stream=Body())
         text='Bonjour, réponse de test.'
         for case in dataset()['cases']:
@@ -184,10 +211,14 @@ def test_agent_uses_real_tools_and_no_auto_execution(service):
     client,admin,app,key,state=service
     result=client.post('/api/agent/analyze',headers=admin,json={'app_id':app['id']}).json()
     assert result['status']=='insufficient_data'
-    assert len(result['tool_calls_json'])==4 and state['calls']==0
+    assert len(result['tool_calls_json'])==4 and state['calls']==0 and state['planner_calls']==0
     for _ in range(3): assert client.post('/v1/chat/completions',headers=key,json=payload()).status_code==200
     result=client.post('/api/agent/analyze',headers=admin,json={'app_id':app['id']}).json()
     assert result['status']=='proposed'
+    assert result['evidence_json']['planner_provider']=='google'
+    assert result['evidence_json']['planner_model']=='test-gemini-model'
+    assert result['evidence_json']['planner_resolved_model']=='test-resolved-gemini'
+    assert state['planner_calls']==1 and state['calls']==3
     assert result['tool_calls_json'][-1]['tool']=='propose_experiment'
     assert result['recommendation_json']['evidence']['observed_requests']==3
     assert client.get('/api/benchmarks',headers=admin,params={'app_id':app['id']}).json()==[]
@@ -361,3 +392,83 @@ def test_stream_timeout_retains_first_token_measurement(service):
     assert 'Bonjour' in result.text and '[DONE]' not in result.text
     row=events(client,admin,app)[0]
     assert row['status']=='error' and row['error_type']=='timeout' and row['ttft_ms'] is not None
+
+
+
+@pytest.mark.parametrize('status',[401,404,429,500])
+def test_google_planner_errors_are_recorded_without_fallback(service,status):
+    client,admin,app,key,state=service
+    for _ in range(3): client.post('/v1/chat/completions',headers=key,json=payload())
+    state['gemini_status']=status
+    result=client.post('/api/agent/analyze',headers=admin,json={'app_id':app['id']}).json()
+    assert result['status']=='failed'
+    assert result['evidence_json']['provider_http_status']==status
+    assert result['evidence_json']['planner_provider']=='google'
+    assert state['calls']==3 and state['planner_calls']==1
+    assert 'not-a-real-google-key' not in json.dumps(result)
+
+
+def test_google_planner_timeout_is_recorded(service):
+    client,admin,app,key,state=service
+    for _ in range(3): client.post('/v1/chat/completions',headers=key,json=payload())
+    state['gemini_timeout']=True
+    result=client.post('/api/agent/analyze',headers=admin,json={'app_id':app['id']}).json()
+    assert result['status']=='failed'
+    assert result['evidence_json']['provider_error']=='timeout'
+    assert state['planner_calls']==1 and state['calls']==3
+
+
+
+def test_google_planner_is_independent_of_groq_credentials(service):
+    client,admin,app,key,state=service
+    for _ in range(3): client.post('/v1/chat/completions',headers=key,json=payload())
+    client.app.state.gateway.settings.groq_key=''
+    result=client.post('/api/agent/analyze',headers=admin,json={'app_id':app['id']}).json()
+    assert result['status']=='proposed'
+    assert state['planner_calls']==1 and state['calls']==3
+    ready=client.get('/ready').json()
+    assert ready['provider_configured'] is False and ready['agent_provider_configured'] is True
+
+
+def test_missing_google_key_does_not_fall_back_to_groq(service):
+    client,admin,app,key,state=service
+    for _ in range(3): client.post('/v1/chat/completions',headers=key,json=payload())
+    client.app.state.gateway.settings.gemini_key=''
+    result=client.post('/api/agent/analyze',headers=admin,json={'app_id':app['id']}).json()
+    assert result['status']=='failed' and 'GEMINI_API_KEY' in result['evidence_json']['reason']
+    assert result['evidence_json']['planner_invoked'] is False
+    assert state['planner_calls']==0 and state['calls']==3
+
+
+def test_google_tool_loop_preserves_signatures_and_real_results(service):
+    client,admin,app,key,state=service
+    for _ in range(3): client.post('/v1/chat/completions',headers=key,json=payload())
+    state['two_google_turns']=True
+    result=client.post('/api/agent/analyze',headers=admin,json={'app_id':app['id']}).json()
+    assert result['status']=='proposed',result
+    assert state['planner_calls']==2 and state['calls']==3
+    assert [call['tool'] for call in result['tool_calls_json']][-2:]==['get_latency_outliers','propose_experiment']
+
+
+def test_google_text_without_tool_call_does_not_create_experiment(service):
+    client,admin,app,key,state=service
+    for _ in range(3): client.post('/v1/chat/completions',headers=key,json=payload())
+    state['google_no_tools']=True
+    result=client.post('/api/agent/analyze',headers=admin,json={'app_id':app['id']}).json()
+    assert result['status']=='no_experiment_proposed' and result['recommendation_json'] is None
+    assert len(result['tool_calls_json'])==4
+
+
+def test_google_truncated_tool_call_cannot_propose_experiment(service):
+    client,admin,app,key,state=service
+    for _ in range(3): client.post('/v1/chat/completions',headers=key,json=payload())
+    state['google_finish']='length'
+    result=client.post('/api/agent/analyze',headers=admin,json={'app_id':app['id']}).json()
+    assert result['status']=='failed' and result['recommendation_json'] is None
+    assert len(result['tool_calls_json'])==4
+
+
+def test_google_model_default_does_not_follow_rag_model(monkeypatch):
+    monkeypatch.delenv('AGENT_MODEL',raising=False)
+    monkeypatch.setenv('GROQ_MODEL','some-rag-model')
+    assert Settings().agent_model=='gemini-flash-latest'

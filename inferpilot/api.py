@@ -62,6 +62,7 @@ def create_app(settings=None, db=None, transport=None):
         client = httpx.AsyncClient(timeout=httpx.Timeout(60,connect=10),transport=transport,
                                    limits=httpx.Limits(max_connections=16,max_keepalive_connections=8))
         api.state.db,api.state.gateway = database,Gateway(database,settings,client)
+        api.state.provider_client = client
         api.state.tasks = set()
         async def retention_loop():
             while True:
@@ -111,7 +112,9 @@ def create_app(settings=None, db=None, transport=None):
     async def ready():
         try:
             await database.one('SELECT 1 AS ok')
-            return {'status':'ready','database':'postgresql','provider_configured':bool(settings.groq_key),'provider_checked':False}
+            return {'status':'ready','database':'postgresql','provider_configured':bool(settings.groq_key),'provider_checked':False,
+                    'agent_provider':'google','agent_model':settings.agent_model,
+                    'agent_provider_configured':bool(settings.gemini_key),'agent_provider_checked':False}
         except Exception:
             raise HTTPException(503,'PostgreSQL is unavailable')
 
@@ -194,7 +197,7 @@ def create_app(settings=None, db=None, transport=None):
     async def agent_analyze(body:AnalysisRequest):
         app = await require_app(body.app_id)
         # No background optimization: tool loop can only produce a proposal.
-        return await analyze(database,settings,api.state.gateway.client,app,body.hours)
+        return await analyze(database,settings,api.state.provider_client,app,body.hours)
 
     @router.get('/agent/runs')
     async def agent_runs(app_id:UUID):

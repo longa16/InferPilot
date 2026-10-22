@@ -11,8 +11,9 @@ class Settings:
     admin_secret: str = field(default_factory=lambda: os.getenv('ADMIN_AUTH_SECRET', ''))
     hmac_secret: str = field(default_factory=lambda: os.getenv('HMAC_SECRET', ''))
     groq_key: str = field(default_factory=lambda: os.getenv('GROQ_API_KEY', ''))
+    gemini_key: str = field(default_factory=lambda: os.getenv('GEMINI_API_KEY', ''))
     model: str = field(default_factory=lambda: os.getenv('GROQ_MODEL', 'llama-3.3-70b-versatile'))
-    agent_model: str = field(default_factory=lambda: os.getenv('AGENT_MODEL', os.getenv('GROQ_MODEL', 'llama-3.3-70b-versatile')))
+    agent_model: str = field(default_factory=lambda: os.getenv('AGENT_MODEL', 'gemini-flash-latest'))
     environment: str = field(default_factory=lambda: os.getenv('ENVIRONMENT', 'development'))
     prices: dict = field(default_factory=lambda: json.loads(os.getenv('PRICING_JSON', '{}')))
     max_payload_bytes: int = 256_000

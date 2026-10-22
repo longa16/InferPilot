@@ -16,7 +16,7 @@ Référence : `InferPilot_Cahier_des_Charges_Codex.docx`, version 1.0, 22 octobr
 | Mesures | Durée gateway, TTFT premier texte amont en streaming, tokens réellement fournis, timings et TPS quand rapportés, coûts sur prix configurés/versionnés, provenance et valeurs nulles explicites. |
 | Confidentialité | Pas de prompts/réponses en monitoring ; HMAC des requêtes, clé fournisseur côté serveur ; réponse brute publique conservée seulement dans le cache de benchmark opt-in. |
 | Dashboard anglais | Overview, Requests avec filtres/pagination, AI Agent, Optimization Lab, Connect ; données API, états vides/erreurs, polling 5 s, interface sombre responsive. |
-| Agent réel | Outils SQL paramétrés exécutés et persistés ; garde-fous déterministes sur les données puis boucle d'appels d'outils Groq quand les preuves suffisent. Aucune proposition si données insuffisantes ; un échec LLM est enregistré comme tel. |
+| Agent réel | Outils SQL paramétrés exécutés et persistés ; garde-fous déterministes sur les données puis boucle d’appels d’outils Google Gemini quand les preuves suffisent. Aucune proposition si données insuffisantes ; un échec LLM est enregistré comme tel. |
 | Action contrôlée | L'agent ne peut produire qu'un plan de benchmark. L'utilisateur doit approuver les appels réels ; aucun changement du trafic de production. |
 | Cache exact | Exclusivement dans le banc d'essai approuvé ; application, corpus, modèle, paramètres, règles et expérience dans la clé ; TTL ; usage amont zéro sur hit et tokens évités séparés. Aucun cache sémantique. |
 | Benchmark | 25 cas versionnés ; 25 baseline, 12 amorçages uniques et 25 optimized, soit 62 tentatives maximum au protocole par défaut. 20 cas réutilisables, 5 non cacheables ; les paraphrases doivent être amorcées séparément. |
@@ -28,8 +28,8 @@ Référence : `InferPilot_Cahier_des_Charges_Codex.docx`, version 1.0, 22 octobr
 
 ## Vérifié et non vérifié
 
-- **Vérifié** : image Docker construite et démarrée avec PostgreSQL, `/health`, `/ready` et authentification contrôlés ; stockage, migrations, insertion/lecture SQL et agrégations sur PostgreSQL local réel ; 53 tests unitaires et d'intégration réussis ; parcours dashboard dans Chromium avec backend réel et fournisseur Groq simulé **uniquement pour les tests**. Les durées et coûts issus de ces tests ne sont pas des résultats fournisseur à présenter au jury.
-- **NOT VERIFIED** : requêtes réelles Groq, compatibilité effective du modèle du compte avec les appels d'outils, coûts effectifs et gains sur trafic réel. Aucune clé utilisable n'a été fournie.
+- **Vérifié** : image Docker construite et démarrée avec PostgreSQL, `/health`, `/ready` et authentification contrôlés ; stockage, migrations, insertion/lecture SQL et agrégations sur PostgreSQL local réel ; 64 tests unitaires et d'intégration réussis ; parcours dashboard dans Chromium avec backend réel et fournisseurs Groq et Gemini simulés **uniquement pour les tests**. Les durées et coûts issus de ces tests ne sont pas des résultats fournisseur à présenter au jury.
+- **NOT VERIFIED** : requêtes réelles Groq et Google Gemini, compatibilité effective du modèle Gemini du compte avec les appels d’outils, coûts effectifs et gains sur trafic réel. Aucune clé utilisable n'a été fournie.
 - **NOT VERIFIED** : Aiven for PostgreSQL, Aiven Runtime, intégration GitHub, URL publique et redeploy. L'utilisateur a indiqué ne pas encore avoir ces services.
 - **À faire par l'utilisateur** : créer/autoriser les ressources Aiven, renseigner les secrets, choisir les modèles accessibles, vérifier les tarifs, envoyer du trafic réel, exécuter un benchmark approuvé et publier/partager la slide après vérification en navigation privée.
 
@@ -45,4 +45,4 @@ Les opérations sont prévues pour une seule instance/worker. PostgreSQL persist
 
 P1 non implémenté : cache sémantique, routage de modèles, Prometheus/OTLP, alertes, tracing interne détaillé du RAG. Pas d'optimisations de GPU, KV cache, batching ou quantification sur l'infrastructure propriétaire de Groq.
 
-Le coût des appels du planificateur Groq de l’agent et le coût des ressources PostgreSQL/Runtime ne sont pas inclus dans le coût du workload observé : le dashboard chiffre les appels passant par la gateway.
+Le coût des appels du planificateur Gemini de l’agent et le coût des ressources PostgreSQL/Runtime ne sont pas inclus dans le coût du workload observé : le dashboard chiffre les appels passant par la gateway.

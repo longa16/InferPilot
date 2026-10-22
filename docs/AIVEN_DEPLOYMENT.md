@@ -18,16 +18,17 @@ Définir dans les paramètres **secrets** Aiven :
 - `DATABASE_URL` : URL PostgreSQL réelle, avec TLS explicite. Préférer `sslmode=verify-full` et configurer la CA Aiven via `sslrootcert`/`PGSSLROOTCERT` selon le mécanisme de montage disponible. Ne pas désactiver la validation TLS pour contourner une erreur. `sslmode=require` chiffre mais ne remplace pas une vérification complète de l'identité du serveur.
 - `ADMIN_AUTH_SECRET` : aléatoire, au moins 32 caractères ; accès aux données du dashboard.
 - `HMAC_SECRET` : autre secret aléatoire stable, au moins 32 caractères ; empreintes non réversibles des requêtes. Le remplacer invalide leur corrélation et les clés du cache.
-- `GROQ_API_KEY` : clé du fournisseur, accessible uniquement au backend.
+- `GROQ_API_KEY` : clé du fournisseur pour le RAG/benchmark, accessible uniquement au backend.
+- `GEMINI_API_KEY` : clé Google AI Studio du cerveau de l’agent ; jamais transmise à NovaMaison ni au navigateur.
 
 Définir les paramètres non secrets :
 
 - `ENVIRONMENT=production`, `PORT` selon la configuration Runtime.
-- `GROQ_MODEL` et `AGENT_MODEL` : modèles effectivement accessibles au compte. Le modèle de l'agent doit prendre en charge les appels d'outils.
+- `GROQ_MODEL` : modèle Groq du RAG/benchmark. `AGENT_MODEL` : modèle Google Gemini compatible avec les appels d’outils, par défaut `gemini-flash-latest`. Remplacer explicitement une ancienne valeur Groq de `AGENT_MODEL`.
 - `RETENTION_DAYS=30` par défaut.
 - `PRICING_JSON` : objet des prix courants **vérifiés par l'opérateur**, contenant pour chaque modèle `input_per_million`, `output_per_million`, `version` et `verified_at`. Sans prix, le dashboard affiche N/A. Aucun tarif fournisseur n'a été inventé ou intégré.
 
-Autoriser l'egress HTTPS vers `api.groq.com` et la connexion PostgreSQL Aiven (hôte et port attribués, souvent différents de 5432). Le conteneur InferPilot ne télécharge pas les modèles d'embedding ; c'est NovaMaison qui a besoin de Hugging Face.
+Autoriser l'egress HTTPS vers `api.groq.com` et `generativelanguage.googleapis.com` et la connexion PostgreSQL Aiven (hôte et port attribués, souvent différents de 5432). Le conteneur InferPilot ne télécharge pas les modèles d'embedding ; c'est NovaMaison qui a besoin de Hugging Face.
 
 ## Vérification à réaliser après déploiement
 
@@ -39,7 +40,7 @@ Utiliser uniquement **l'URL réelle fournie par Aiven**, pas une URL supposée :
 4. Envoyer des questions réelles. Vérifier successivement la réponse non-stream, le streaming progressif, `[DONE]`, l'augmentation des événements PostgreSQL et les provenances de tokens/coûts. Vérifier aussi le refus d'une mauvaise clé gateway.
 5. Répéter quelques questions, lancer l'agent et inspecter ses **appels d'outils réels**. Approuver le benchmark ; attendre un rapport complet, examiner les coûts d'amorçage et la qualité avant de parler de gains.
 6. Faire un redeploy explicite du dernier commit, puis refaire `/ready` et une requête. **Ne pas supposer qu'un push déclenche automatiquement un déploiement.**
-7. Capturer les résultats réels pour le jury. Les tests avec Groq simulé ne sont pas une preuve de gain fournisseur ni de déploiement Aiven.
+7. Capturer les résultats réels pour le jury. Les tests avec Groq simulé ne sont pas une preuve de gain fournisseur ni de déploiement Aiven. Vérifier aussi la clé Gemini et sa capacité d’appels d’outils avec une analyse réelle.
 
 Le cache ne s'applique pas au trafic externe : seule l'expérience isolée approuvée peut l'activer. L'état durable est en PostgreSQL. Une interruption de processus peut laisser une expérience en cours : les travaux vieux de plus de 15 minutes sont marqués interrompus au démarrage suivant. Le MVP est prévu pour une seule instance ; ne pas prétendre à une orchestration distribuée durable.
 

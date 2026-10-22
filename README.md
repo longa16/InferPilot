@@ -8,6 +8,7 @@ flowchart LR
   G -->|JSON ou SSE| P[Groq]
   G --> DB[(PostgreSQL)]
   DB --> A[Agent : outils SQL bornés]
+  A --> M[Google Gemini : cerveau de l’agent]
   A --> H[Proposition et approbation humaine]
   H --> B[Benchmark isolé : baseline / warm-up / optimized]
   B --> G
@@ -18,7 +19,7 @@ Le [bilan par exigence](docs/IMPLEMENTATION_STATUS.md) détaille ce qui est réa
 
 ## Démarrage local avec Docker Desktop
 
-Prérequis : Docker Desktop démarré en mode Linux avec Compose, accès aux registres et à Groq ; Python 3 pour préparer les secrets (ou remplir `.env` manuellement). Le service InferPilot ne nécessite pas de GPU. Les embeddings/reranker NovaMaison ont besoin de mémoire et d'accès à Hugging Face.
+Prérequis : Docker Desktop démarré en mode Linux avec Compose, accès aux registres, à Groq et à Google Gemini ; Python 3 pour préparer les secrets (ou remplir `.env` manuellement). Le service InferPilot ne nécessite pas de GPU. Les embeddings/reranker NovaMaison ont besoin de mémoire et d'accès à Hugging Face.
 
 Depuis le checkout existant, par exemple `Y:\InferPilot` dans PowerShell :
 
@@ -26,7 +27,7 @@ Depuis le checkout existant, par exemple `Y:\InferPilot` dans PowerShell :
 git pull
 python scripts/configure_local.py
 # Ouvrir .env : renseigner GROQ_API_KEY et un GROQ_MODEL accessible au compte.
-# AGENT_MODEL doit être un modèle Groq compatible avec les appels d'outils.
+# Renseigner GEMINI_API_KEY et AGENT_MODEL=gemini-flash-latest pour le cerveau de l’agent.
 docker compose -f compose.inferpilot.yaml up --build -d
 ```
 
@@ -66,13 +67,38 @@ Hors réseau Compose, remplacer le nom interne par l'URL effectivement accessibl
 
 La gateway accepte uniquement le sous-ensemble `model`, `messages` texte, `temperature`, `max_completion_tokens`, `stream` sur `POST /v1/chat/completions`. Ce n'est pas un proxy universel OpenAI. Une clé par application est hachée en base ; rotation possible via l'API admin. Un `X-Request-ID` UUID fourni est idempotent : sa réutilisation est refusée sans rappeler Groq.
 
+## Cerveau de l’agent : Google Gemini
+
+Deux fournisseurs ont des rôles distincts : **Groq génère les réponses du RAG NovaMaison et exécute le benchmark ; Google Gemini orchestre les outils de l’agent InferPilot**. Il n’y a pas de repli automatique de l’agent vers Groq.
+
+Créer une clé dans [Google AI Studio](https://aistudio.google.com/apikey), puis configurer côté **InferPilot uniquement** :
+
+```dotenv
+GEMINI_API_KEY=<clé Google, à conserver dans .env ou les secrets Aiven>
+AGENT_MODEL=gemini-flash-latest
+```
+
+Le modèle par défaut est l’alias Gemini Flash utilisé dans les exemples du SDK officiel Google. Cet alias peut évoluer ; pour une version figée, choisir un identifiant Gemini disponible sur votre compte et compatible avec les appels d’outils. La disponibilité, les quotas et les frais dépendent de votre compte. Si un ancien `.env` contient `AGENT_MODEL=llama-...`, **remplacer cette valeur explicitement** : le générateur de configuration préserve les valeurs existantes.
+
+L’agent appelle directement l’API Gemini via son interface de compatibilité OpenAI : `https://generativelanguage.googleapis.com/v1beta/openai/chat/completions`. L’authentification utilise la clé Gemini côté serveur. Les schémas d’outils, les résultats SQL et les métadonnées nécessaires aux tours suivants sont conservés ; le serveur continue de vérifier les noms et arguments autorisés avant d’exécuter un outil.
+
+Seuls les agrégats et identifiants non sensibles issus des outils sont envoyés au planificateur. Chaque analyse enregistre le fournisseur, le modèle demandé, le modèle résolu si rapporté et le fait qu’un appel ait été tenté. Les anciennes analyses Groq restent inchangées. Le coût Gemini est distinct du coût du workload Groq affiché dans Overview.
+
+Après modification de `.env`, reconstruire/recréer le service :
+
+```sh
+docker compose -f compose.inferpilot.yaml up --build -d inferpilot
+```
+
+Sans données suffisantes, les outils rendent `insufficient_data` sans solliciter Google. Sans clé Google, ou en cas d’erreur de modèle/quota/connexion, l’analyse est marquée `failed`, avec les preuves SQL conservées. `/ready` indique si le planificateur est configuré, sans prétendre avoir validé son accès au fournisseur.
+
 ## Mesures et coût
 
 - **Durée gateway** : de l'admission de la tentative à la fin observée, incluant son instrumentation et l'appel fournisseur. Ce n'est pas le temps GPU ni la durée complète du RAG.
 - **TTFT gateway** : premier fragment de texte amont non vide, pas premiers en-têtes ni métadonnées SSE. Disponible sur les appels stream.
 - **Tokens** : compteurs `usage`/`x_groq.usage` effectivement renvoyés ; sinon `null`/`unavailable`. Aucun comptage des fragments SSE comme tokens.
 - **TPS fournisseur** : tokens de sortie divisés par `completion_time` seulement si cette durée est effectivement rapportée. Sinon N/A. Timings fournisseur distincts des mesures gateway.
-- **Coût estimé** : tokens × tarifs configurés par million. Les prix ne sont pas codés en dur. Renseigner `PRICING_JSON` avec, par modèle, `input_per_million`, `output_per_million`, `version` et `verified_at`, après vérification des tarifs courants. Ce n'est pas une facture. Les chiffres agrégés précisent la couverture des valeurs connues. Le coût du planificateur de l’agent et celui de l’infrastructure sont distincts et non inclus.
+- **Coût estimé** : tokens × tarifs configurés par million. Les prix ne sont pas codés en dur. Renseigner `PRICING_JSON` avec, par modèle, `input_per_million`, `output_per_million`, `version` et `verified_at`, après vérification des tarifs courants. Ce n'est pas une facture. Les chiffres agrégés précisent la couverture des valeurs connues. Le coût du planificateur Gemini de l’agent et celui de l’infrastructure sont distincts et non inclus.
 - **Cache hit** : zéro appel amont, donc zéro token consommé en amont ; tokens évités présentés séparément comme estimation d'une consommation évitée.
 - **P95** : N/A avec moins de 20 réponses réussies dans la fenêtre. Les erreurs, abandons et requêtes en cours restent distincts.
 
@@ -80,7 +106,7 @@ Le dashboard ne collecte pas automatiquement les temps internes de recherche/rer
 
 ## Agent et expérience contrôlée
 
-L'agent exécute réellement `get_overview`, `get_repeated_patterns`, `get_latency_outliers` et `get_previous_benchmarks`, dont les résultats SQL sont enregistrés. Les gardes déterministes refusent une proposition avec moins de trois observations ou sans répétition exacte réussie. Ensuite, un modèle Groq utilise une boucle d'outils bornée, dont `propose_experiment`. Seuls les outils déclarés et leurs paramètres autorisés sont exécutables ; aucun SQL arbitraire, modification d'infrastructure ou activation de production n'est autorisé.
+L'agent exécute réellement `get_overview`, `get_repeated_patterns`, `get_latency_outliers` et `get_previous_benchmarks`, dont les résultats SQL sont enregistrés. Les gardes déterministes refusent une proposition avec moins de trois observations ou sans répétition exacte réussie. Ensuite, un modèle Google Gemini utilise une boucle d'outils bornée, dont `propose_experiment`. Seuls les outils déclarés et leurs paramètres autorisés sont exécutables ; aucun SQL arbitraire, modification d'infrastructure ou activation de production n'est autorisé.
 
 L'expérience compare la **génération avec contexte public figé**, sans prétendre chronométrer le RAG complet :
 
@@ -114,9 +140,9 @@ TEST_DATABASE_URL=postgresql://... .venv/bin/python -m pytest -q
 
 Un workflow GitHub Actions lance aussi les tests sur PostgreSQL ; son exécution distante doit être vérifiée après push.
 
-Les tests PostgreSQL utilisent un schéma éphémère par cas, isolé du schéma applicatif. Ils nécessitent le droit de créer/supprimer ces schémas. Groq est remplacé par un transport de test uniquement dans les tests. **Leurs métriques ne sont pas des chiffres fournisseur ou des gains à présenter au jury.** Le serveur runtime ne possède aucun endpoint d'insertion de métriques factices.
+Les tests PostgreSQL utilisent un schéma éphémère par cas, isolé du schéma applicatif. Ils nécessitent le droit de créer/supprimer ces schémas. Groq et Google Gemini sont remplacés par des transports de test uniquement dans les tests. **Leurs métriques ne sont pas des chiffres fournisseur ou des gains à présenter au jury.** Le serveur runtime ne possède aucun endpoint d'insertion de métriques factices.
 
-Pour lancer la plateforme sans Docker : injecter `DATABASE_URL`, `ADMIN_AUTH_SECRET`, `HMAC_SECRET` et `GROQ_API_KEY`, puis :
+Pour lancer la plateforme sans Docker : injecter `DATABASE_URL`, `ADMIN_AUTH_SECRET`, `HMAC_SECRET`, `GROQ_API_KEY` et `GEMINI_API_KEY`, puis :
 
 ```sh
 uv run --frozen uvicorn inferpilot.api:app --env-file .env --host 0.0.0.0 --port 8080
@@ -124,7 +150,7 @@ uv run --frozen uvicorn inferpilot.api:app --env-file .env --host 0.0.0.0 --port
 
 ## Aiven et démonstration
 
-Suivre [la procédure Aiven](docs/AIVEN_DEPLOYMENT.md) : PostgreSQL managé avec TLS, Runtime depuis `Dockerfile.inferpilot`, secrets, vérification réelle de `/ready` et redeploy explicite. **Aiven Runtime/PostgreSQL et les appels Groq réels sont NOT VERIFIED ici faute d'accès.** Les vérifications locales n'en tiennent pas lieu.
+Suivre [la procédure Aiven](docs/AIVEN_DEPLOYMENT.md) : PostgreSQL managé avec TLS, Runtime depuis `Dockerfile.inferpilot`, secrets, vérification réelle de `/ready` et redeploy explicite. **Aiven Runtime/PostgreSQL et les appels Groq/Gemini réels sont NOT VERIFIED ici faute d'accès.** Les vérifications locales n'en tiennent pas lieu.
 
 [Slide autonome préparée](docs/pitch.html) ([PDF une page](docs/InferPilot_pitch.pdf)) : faire relire, publier/partager avec autorisation de lecture publique puis vérifier en navigation privée. Aucun lien public ni résultat de benchmark réel n'est inventé.
 
