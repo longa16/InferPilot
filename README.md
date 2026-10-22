@@ -156,6 +156,20 @@ Suivre [la procédure Aiven](docs/AIVEN_DEPLOYMENT.md) : PostgreSQL managé avec
 
 Scénario jury, 3–5 minutes : problème utilisateur → 2–3 questions NovaMaison → remontée PostgreSQL → vrais outils de l'agent → proposition → benchmark approuvé → comparaison incluant amorçage/qualité/limites → cible et acquisition des premiers utilisateurs.
 
+## Téléchargements lents pendant le build
+
+Si `uv sync` échoue avec `Failed to download distribution due to network timeout`, il s'agit du téléchargement des dépendances Python. Les deux Dockerfiles fixent `UV_HTTP_TIMEOUT=300` (secondes, au lieu de 30), `UV_HTTP_RETRIES=5` et `UV_CONCURRENT_DOWNLOADS=3`. Un cache BuildKit conserve les paquets déjà téléchargés pour les constructions suivantes, y compris après une étape interrompue. TLS et les vérifications des empreintes du lockfile restent actifs.
+
+Après récupération du correctif, relancer depuis PowerShell ou un terminal :
+
+```sh
+git pull
+docker compose -f compose.inferpilot.yaml --progress plain build inferpilot
+docker compose -f compose.inferpilot.yaml up -d
+```
+
+Pour NovaMaison seul, utiliser `docker compose --progress plain build app`, puis `docker compose up -d`. Ces variables sont définies dans l'image pour l'installation ; les ajouter seulement au `.env` du conteneur ne change pas cette étape de build. Un réseau sans accès à PyPI nécessite de corriger sa configuration ; augmenter le délai ne garantit pas le téléchargement.
+
 ## Build derrière un proxy d'entreprise
 
 Le Dockerfile InferPilot accepte une autorité de confiance supplémentaire comme secret BuildKit, sans la copier dans l'image :

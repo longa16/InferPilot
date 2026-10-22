@@ -25,6 +25,8 @@ docker compose logs -f app
 
 Compose lance uniquement l'application et conserve le cache des modèles locaux. La page est disponible sur le port local 8000 ; `/docs` expose la documentation API. Le port est lié à l'interface de boucle locale ; pour un hébergement public, placer un reverse proxy HTTPS devant l'application, avec authentification et limitation de débit.
 
+Les téléchargements des dépendances Python au build utilisent un délai HTTP de 300 secondes, cinq reprises et trois téléchargements simultanés. Le cache BuildKit conserve les paquets pour les prochains builds. En cas d'erreur `UV_HTTP_TIMEOUT`, récupérer le dernier code puis relancer `docker compose --progress plain build app` ; le [guide de dépannage](../README.md#téléchargements-lents-pendant-le-build) détaille la configuration.
+
 ```sh
 curl -f http://localhost:8000/health
 curl -f http://localhost:8000/api/chat -H 'Content-Type: application/json' \
